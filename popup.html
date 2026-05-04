@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 520px;
+      max-height: 600px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #333;
+      background: #f5f5f5;
+    }
+    header {
+      background: #03c75a;
+      color: white;
+      padding: 12px 16px;
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    header .ver { font-size: 11px; opacity: 0.8; font-weight: 400; }
+    .controls {
+      padding: 10px 16px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      background: #fff;
+      border-bottom: 1px solid #e0e0e0;
+    }
+    button {
+      padding: 7px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-primary { background: #1a73e8; color: white; }
+    .btn-save { background: #03c75a; color: white; }
+    .btn-copy { background: #555; color: white; }
+    .btn-json { background: #7c3aed; color: white; }
+    .btn-debug { background: #888; color: white; font-size: 11px; padding: 5px 10px; }
+    #status {
+      padding: 8px 16px;
+      font-size: 12px;
+      color: #666;
+      background: #fff;
+    }
+    #output {
+      padding: 12px 16px;
+      max-height: 420px;
+      overflow-y: auto;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span>Naver Cafe Collector</span>
+    <span class="ver">v0.3</span>
+  </header>
+  <div class="controls">
+    <button id="btnCollect" class="btn-primary">수집</button>
+    <button id="btnSave" class="btn-save">JSON 저장</button>
+    <button id="btnCopyJson" class="btn-json">JSON 복사</button>
+    <button id="btnCopyText" class="btn-copy">텍스트 복사</button>
+    <button id="btnDebug" class="btn-debug">DOM</button>
+    <button id="btnComments" class="btn-debug">댓글</button>
+  </div>
+  <div id="status">네이버 카페 게시글 페이지에서 [수집] 버튼을 클릭하세요.</div>
+  <div id="output"></div>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Naver Cafe Collector",
+  "version": "0.3.0",
+  "description": "네이버 카페 게시글의 제목, 본문, 댓글을 수집하여 JSON 파일로 저장",
+  "permissions": ["activeTab", "scripting", "webNavigation", "downloads"],
+  "host_permissions": ["https://cafe.naver.com/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://cafe.naver.com/*"],
+      "js": ["content.js"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ]
+}
