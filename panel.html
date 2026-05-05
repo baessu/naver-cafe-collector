@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      width: 100%;
+      height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Pretendard', 'Segoe UI', sans-serif;
+      font-size: 13px;
+      color: #222;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    .header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid #f0f0f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header h1 { font-size: 16px; font-weight: 700; color: #1a1a1a; letter-spacing: -0.3px; }
+    .site-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge-naver { background: #e8f8ee; color: #03c75a; }
+    .badge-linkedin { background: #e8f1fc; color: #0a66c2; }
+    .badge-threads { background: #f0f0f0; color: #000; }
+    .badge-x { background: #f0f0f0; color: #000; }
+    .badge-unknown { background: #f5f5f5; color: #999; }
+
+    /* Tabs (naver only) */
+    .tab-bar {
+      display: flex;
+      padding: 0 20px;
+      gap: 4px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .tab-bar button {
+      padding: 10px 16px;
+      border: none;
+      background: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: #999;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+      transition: color 0.15s;
+    }
+    .tab-bar button:hover { color: #555; }
+    .tab-bar button.active { color: #03c75a; border-bottom-color: #03c75a; }
+
+    /* Panels */
+    .panel { display: none; padding: 16px 20px; }
+    .panel.active { display: block; }
+
+    /* Mode containers */
+    .mode { display: none; }
+    .mode.active { display: flex; flex-direction: column; flex: 1; }
+
+    /* Buttons */
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .btn:active { transform: translateY(0); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; box-shadow: none; }
+    .btn-primary { background: #03c75a; color: white; }
+    .btn-secondary { background: #f5f5f5; color: #333; border: 1px solid #e0e0e0; }
+    .btn-danger { background: #ff4444; color: white; }
+    .btn-linkedin { background: #0a66c2; color: white; }
+    .btn-dark { background: #1a1a1a; color: white; }
+
+    /* Batch config */
+    .batch-config {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      padding: 12px;
+      background: #fafafa;
+      border-radius: 8px;
+      border: 1px solid #f0f0f0;
+    }
+    .batch-config label { font-size: 12px; color: #666; font-weight: 500; }
+    .batch-config input {
+      width: 48px;
+      padding: 6px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      text-align: center;
+      outline: none;
+    }
+    .batch-config input:focus { border-color: #03c75a; }
+    .batch-config .sep { color: #ccc; font-size: 14px; }
+
+    /* Progress */
+    .progress { margin: 12px 0; display: none; }
+    .progress-bar { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
+    .progress-bar .fill {
+      height: 100%;
+      background: linear-gradient(90deg, #03c75a, #00e676);
+      border-radius: 3px;
+      transition: width 0.3s ease;
+      width: 0%;
+    }
+    .progress-text { font-size: 11px; color: #888; margin-top: 4px; }
+
+    /* Post counter */
+    .counter {
+      font-size: 28px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin: 16px 0 4px;
+    }
+    .counter-label { font-size: 12px; color: #888; margin-bottom: 16px; }
+
+    /* Preview list */
+    .preview {
+      flex: 1;
+      overflow-y: auto;
+      margin-top: 12px;
+      border-top: 1px solid #f0f0f0;
+      padding-top: 12px;
+    }
+    .preview-item {
+      padding: 8px 0;
+      border-bottom: 1px solid #f5f5f5;
+    }
+    .preview-item .author { font-size: 11px; font-weight: 600; color: #555; }
+    .preview-item .text { font-size: 12px; color: #333; margin-top: 2px; line-height: 1.4; }
+    .preview-item .meta { font-size: 10px; color: #aaa; margin-top: 2px; }
+
+    /* Status */
+    .status-bar {
+      padding: 8px 20px;
+      font-size: 11px;
+      color: #888;
+      background: #fafafa;
+      border-top: 1px solid #f0f0f0;
+      min-height: 32px;
+      display: flex;
+      align-items: center;
+    }
+
+    /* Output (naver mode) */
+    #output {
+      flex: 1;
+      overflow-y: auto;
+      margin: 0;
+      padding: 12px 20px;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: 'SF Mono', 'JetBrains Mono', monospace;
+      font-size: 11px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    #output:empty { display: none; }
+
+    .hint { font-size: 11px; color: #aaa; margin-top: 8px; line-height: 1.5; }
+    .unsupported { padding: 32px 20px; color: #555; }
+    .unsupported h2 { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 16px; }
+    .site-list { list-style: none; padding: 0; }
+    .site-list li {
+      padding: 10px 0;
+      border-bottom: 1px solid #f5f5f5;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .site-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-naver { background: #03c75a; }
+    .dot-linkedin { background: #0a66c2; }
+    .dot-threads { background: #000; }
+    .dot-x { background: #1a1a1a; }
+    .site-desc { font-weight: 400; color: #999; font-size: 11px; }
+    .site-hint { font-size: 11px; color: #aaa; margin-top: 16px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Side Collector</h1>
+    <span id="siteBadge" class="site-badge badge-unknown">—</span>
+  </div>
+
+  <!-- ═══ NAVER CAFE MODE ═══ -->
+  <div id="mode-naver" class="mode">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="single">단일 수집</button>
+      <button class="tab-btn" data-tab="batch">일괄 수집</button>
+    </div>
+
+    <div id="panel-single" class="panel active">
+      <div class="actions">
+        <button id="btnCollect" class="btn btn-primary">수집</button>
+        <button id="btnSave" class="btn btn-secondary">저장</button>
+        <button id="btnCopyJson" class="btn btn-secondary">JSON 복사</button>
+        <button id="btnCopyText" class="btn btn-secondary">텍스트 복사</button>
+      </div>
+      <p class="hint">게시글 페이지에서 제목, 본문, 댓글을 추출합니다.</p>
+    </div>
+
+    <div id="panel-batch" class="panel">
+      <div class="batch-config">
+        <label>페이지</label>
+        <input id="startPage" type="number" value="1" min="1">
+        <span class="sep">~</span>
+        <input id="endPage" type="number" value="3" min="1">
+        <button id="btnBatch" class="btn btn-primary">수집 시작</button>
+        <button id="btnBatchStop" class="btn btn-danger" style="display:none;">중지</button>
+      </div>
+      <div id="progress" class="progress">
+        <div class="progress-bar"><div class="fill"></div></div>
+        <div class="progress-text" id="progressText"></div>
+      </div>
+      <div class="actions">
+        <button id="btnBatchSave" class="btn btn-secondary">저장</button>
+        <button id="btnBatchCopy" class="btn btn-secondary">JSON 복사</button>
+      </div>
+      <p class="hint">게시판/멤버 페이지의 글 목록을 순회하며 수집합니다.<br>패널을 닫아도 백그라운드에서 수집이 계속됩니다.</p>
+    </div>
+  </div>
+
+  <!-- ═══ SOCIAL SCROLL MODE (LinkedIn, Threads, X) ═══ -->
+  <div id="mode-social" class="mode">
+    <div style="padding: 16px 20px;">
+      <div class="actions">
+        <button id="btnStart" class="btn btn-dark">Start</button>
+        <button id="btnStop" class="btn btn-danger" style="display:none;">Stop</button>
+        <button id="btnExport" class="btn btn-secondary">CSV 내보내기</button>
+        <button id="btnClear" class="btn btn-secondary">초기화</button>
+      </div>
+      <div class="counter" id="postCount">0</div>
+      <div class="counter-label">posts captured</div>
+      <p class="hint">프로필 피드에서 자동 스크롤하며 게시물을 수집합니다.</p>
+    </div>
+    <div class="preview" id="preview"></div>
+  </div>
+
+  <!-- ═══ UNSUPPORTED / HOME ═══ -->
+  <div id="mode-unsupported" class="mode">
+    <div class="unsupported">
+      <h2>지원 사이트</h2>
+      <ul class="site-list">
+        <li><span class="site-dot dot-naver"></span>Naver Cafe <span class="site-desc">— 게시글 단일/일괄 수집 (JSON)</span></li>
+        <li><span class="site-dot dot-linkedin"></span>LinkedIn <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
+        <li><span class="site-dot dot-threads"></span>Threads <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
+        <li><span class="site-dot dot-x"></span>X (Twitter) <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
+      </ul>
+      <p class="site-hint">해당 사이트로 이동하면 자동으로 수집 모드가 활성화됩니다.</p>
+    </div>
+  </div>
+
+  <div class="status-bar" id="status">사이트 감지 중...</div>
+  <div id="output"></div>
+  <script src="panel.js"></script>
+</body>
+</html>

@@ -1,5 +1,10 @@
 // background.js — Service Worker: handles all tab navigation (pagination + article fetch)
 
+// Open side panel on extension icon click
+chrome.action.onClicked.addListener(async (tab) => {
+  await chrome.sidePanel.open({ tabId: tab.id });
+});
+
 let batchState = {
   running: false,
   aborted: false,
@@ -106,7 +111,7 @@ async function injectScript(tabId) {
   try {
     await chrome.scripting.executeScript({
       target: { tabId, allFrames: true },
-      files: ['content.js'],
+      files: ['scrapers/naver-cafe.js'],
     });
   } catch (e) { /* might fail on about:blank frames */ }
   await sleep(100);
