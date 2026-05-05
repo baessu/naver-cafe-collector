@@ -1,14 +1,17 @@
 {
   "manifest_version": 3,
   "name": "Side Collector",
-  "version": "2.0.0",
-  "description": "네이버 카페, LinkedIn, Threads, X 게시글을 사이드 패널에서 수집",
+  "version": "2.1.0",
+  "description": "네이버 카페, 쿠팡, 아이허브, LinkedIn, Threads, X, YouTube에서 데이터 수집",
   "background": {
     "service_worker": "background.js"
   },
   "permissions": ["activeTab", "scripting", "webNavigation", "downloads", "sidePanel", "storage"],
   "host_permissions": [
     "https://cafe.naver.com/*",
+    "https://www.coupang.com/*",
+    "https://*.iherb.com/*",
+    "https://www.youtube.com/*",
     "https://www.linkedin.com/*",
     "https://www.threads.net/*",
     "https://www.threads.com/*",
@@ -28,6 +31,21 @@
       "matches": ["https://cafe.naver.com/*"],
       "js": ["scrapers/naver-cafe.js"],
       "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.coupang.com/vp/products/*"],
+      "js": ["scrapers/coupang.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.iherb.com/r/*", "https://*.iherb.com/pr/*"],
+      "js": ["scrapers/iherb.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["scrapers/youtube.js"],
       "run_at": "document_idle"
     },
     {

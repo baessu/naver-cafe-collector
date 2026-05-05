@@ -21,6 +21,9 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 function detectSite(url) {
   if (url.includes('cafe.naver.com')) return 'naver';
+  if (url.includes('coupang.com/vp/products')) return 'coupang';
+  if (url.includes('iherb.com')) return 'iherb';
+  if (url.includes('youtube.com/watch')) return 'youtube';
   if (url.includes('linkedin.com')) return 'linkedin';
   if (url.includes('threads.net') || url.includes('threads.com')) return 'threads';
   if (url.includes('x.com') || url.includes('twitter.com')) return 'x';
@@ -38,6 +41,22 @@ function showMode(site) {
     badge.textContent = 'Naver Cafe';
     badge.className = 'site-badge badge-naver';
     setStatus('네이버 카페 페이지에서 수집을 시작하세요.');
+  } else if (site === 'coupang') {
+    document.getElementById('mode-review').classList.add('active');
+    badge.textContent = 'Coupang';
+    badge.className = 'site-badge badge-coupang';
+    setStatus('상품 페이지에서 [수집 시작]을 누르세요.');
+  } else if (site === 'iherb') {
+    document.getElementById('mode-review').classList.add('active');
+    badge.textContent = 'iHerb';
+    badge.className = 'site-badge badge-iherb';
+    setStatus('상품 페이지에서 [수집 시작]을 누르세요.');
+  } else if (site === 'youtube') {
+    document.getElementById('mode-social').classList.add('active');
+    badge.textContent = 'YouTube';
+    badge.className = 'site-badge badge-youtube';
+    document.getElementById('btnStart').className = 'btn btn-danger';
+    setStatus('영상 페이지에서 Start로 댓글을 수집하세요.');
   } else if (site === 'linkedin') {
     document.getElementById('mode-social').classList.add('active');
     badge.textContent = 'LinkedIn';
@@ -309,7 +328,62 @@ document.getElementById('btnBatchCopy').addEventListener('click', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-//  SOCIAL MODE (LinkedIn, Threads, X)
+//  REVIEW MODE (Coupang, iHerb)
+// ═══════════════════════════════════════════════════════════
+
+let reviewResult = null;
+
+// Listen for progress/complete messages from coupang/iherb content scripts
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'progress') {
+    const pct = msg.progress || 0;
+    const fill = document.querySelector('#reviewProgress .fill');
+    if (fill) fill.style.width = `${pct}%`;
+    document.getElementById('reviewStatus').textContent = `${msg.status} (${msg.reviewCount || 0}개 수집)`;
+  }
+  if (msg.type === 'complete' && msg.data) {
+    reviewResult = msg.data;
+    const fill = document.querySelector('#reviewProgress .fill');
+    if (fill) fill.style.width = '100%';
+    document.getElementById('reviewStatus').textContent =
+      `수집 완료 — ${msg.data.totalReviews}개 리뷰, ${msg.data.totalPages}페이지`;
+    document.getElementById('btnReviewCollect').disabled = false;
+  }
+  if (msg.type === 'error') {
+    document.getElementById('reviewStatus').textContent = `오류: ${msg.message}`;
+    document.getElementById('btnReviewCollect').disabled = false;
+  }
+});
+
+document.getElementById('btnReviewCollect').addEventListener('click', async () => {
+  reviewResult = null;
+  document.getElementById('btnReviewCollect').disabled = true;
+  document.getElementById('reviewProgress').style.display = 'block';
+  document.getElementById('reviewStatus').textContent = '수집 시작...';
+  const fill = document.querySelector('#reviewProgress .fill');
+  if (fill) fill.style.width = '0%';
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) {
+    await chrome.tabs.sendMessage(tab.id, { action: 'startCollect' });
+  }
+});
+
+document.getElementById('btnReviewSave').addEventListener('click', async () => {
+  if (!reviewResult) { setStatus('먼저 수집을 완료하세요.'); return; }
+  const site = reviewResult.site || (reviewResult.productUrl?.includes('iherb') ? 'iherb' : 'coupang');
+  const filename = `${formatToday()}_${site}_${reviewResult.productId || 'product'}.json`;
+  await downloadJson(JSON.stringify(reviewResult, null, 2), filename);
+});
+
+document.getElementById('btnReviewCopy').addEventListener('click', async () => {
+  if (!reviewResult) { setStatus('먼저 수집을 완료하세요.'); return; }
+  await navigator.clipboard.writeText(JSON.stringify(reviewResult, null, 2));
+  setStatus('JSON 복사 완료!');
+});
+
+// ═══════════════════════════════════════════════════════════
+//  SOCIAL MODE (LinkedIn, Threads, X, YouTube)
 // ═══════════════════════════════════════════════════════════
 
 async function sendToActiveTab(message) {
