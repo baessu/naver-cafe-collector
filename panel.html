@@ -38,6 +38,8 @@
     .badge-coupang { background: #fef1e6; color: #f05014; }
     .badge-iherb { background: #e8f5e9; color: #3a7d23; }
     .badge-youtube { background: #fee8e8; color: #ff0000; }
+    .badge-facebook { background: #e7f0fd; color: #1877f2; }
+    .badge-instagram { background: #fce4ec; color: #e1306c; }
     .badge-unknown { background: #f5f5f5; color: #999; }
 
     /* Tabs (naver only) */
@@ -65,6 +67,9 @@
     /* Panels */
     .panel { display: none; padding: 16px 20px; }
     .panel.active { display: block; }
+
+    /* Mode inner content */
+    .mode-content { padding: 16px 20px; }
 
     /* Mode containers */
     .mode { display: none; }
@@ -114,8 +119,25 @@
     .batch-config input:focus { border-color: #03c75a; }
     .batch-config .sep { color: #ccc; font-size: 14px; }
 
+    /* Start-article picker (phase 2) */
+    .start-picker { margin: 10px 0 0; display: none; }
+    .start-picker.active { display: block; }
+    .start-picker label { font-size: 12px; color: #666; font-weight: 500; display: block; margin-bottom: 6px; }
+    .start-picker select {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 12px;
+      outline: none;
+      background: #fff;
+    }
+    .start-picker select:focus { border-color: #03c75a; }
+    .range-preview { font-size: 11px; color: #03a24a; margin-top: 6px; font-weight: 500; }
+
     /* Progress */
-    .progress { margin: 12px 0; display: none; }
+    .progress { margin: 12px 0 0; display: none; }
+    .progress.active { display: block; }
     .progress-bar { height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
     .progress-bar .fill {
       height: 100%;
@@ -124,16 +146,16 @@
       transition: width 0.3s ease;
       width: 0%;
     }
-    .progress-text { font-size: 11px; color: #888; margin-top: 4px; }
+    .progress-text { font-size: 11px; color: #888; margin-top: 6px; }
 
     /* Post counter */
     .counter {
       font-size: 28px;
       font-weight: 700;
       color: #1a1a1a;
-      margin: 16px 0 4px;
+      margin: 16px 0 2px;
     }
-    .counter-label { font-size: 12px; color: #888; margin-bottom: 16px; }
+    .counter-label { font-size: 12px; color: #888; margin-bottom: 0; }
 
     /* Preview list */
     .preview {
@@ -141,7 +163,7 @@
       overflow-y: auto;
       margin-top: 12px;
       border-top: 1px solid #f0f0f0;
-      padding-top: 12px;
+      padding: 12px 20px 0;
     }
     .preview-item {
       padding: 8px 0;
@@ -179,8 +201,8 @@
     }
     #output:empty { display: none; }
 
-    .hint { font-size: 11px; color: #aaa; margin-top: 8px; line-height: 1.5; }
-    .unsupported { padding: 32px 20px; color: #555; }
+    .hint { font-size: 11px; color: #aaa; margin-top: 12px; line-height: 1.5; }
+    .unsupported { padding: 16px 20px; color: #555; }
     .unsupported h2 { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 16px; }
     .site-list { list-style: none; padding: 0; }
     .site-list li {
@@ -203,6 +225,8 @@
     .dot-youtube { background: #ff0000; }
     .dot-linkedin { background: #0a66c2; }
     .dot-threads { background: #000; }
+    .dot-facebook { background: #1877f2; }
+    .dot-instagram { background: #e1306c; }
     .dot-x { background: #1a1a1a; }
     .site-desc { font-weight: 400; color: #999; font-size: 11px; }
     .site-hint { font-size: 11px; color: #aaa; margin-top: 16px; line-height: 1.5; }
@@ -237,40 +261,51 @@
         <input id="startPage" type="number" value="1" min="1">
         <span class="sep">~</span>
         <input id="endPage" type="number" value="3" min="1">
-        <button id="btnBatch" class="btn btn-primary">수집 시작</button>
-        <button id="btnBatchStop" class="btn btn-danger" style="display:none;">중지</button>
+        <button id="btnLoadLinks" class="btn btn-primary">링크 불러오기</button>
+        <button id="btnLinksStop" class="btn btn-danger" style="display:none;">중지</button>
+      </div>
+      <div id="startPicker" class="start-picker">
+        <label>시작 글 (선택 — 이 글부터 끝까지 수집)</label>
+        <select id="startArticle"></select>
+        <div id="rangePreview" class="range-preview"></div>
+        <div class="actions" style="margin-top:10px;">
+          <button id="btnBatch" class="btn btn-primary">수집 시작</button>
+          <button id="btnBatchStop" class="btn btn-danger" style="display:none;">중지</button>
+        </div>
       </div>
       <div id="progress" class="progress">
         <div class="progress-bar"><div class="fill"></div></div>
         <div class="progress-text" id="progressText"></div>
       </div>
       <div class="actions">
+        <button id="btnBatchRetry" class="btn btn-danger" style="display:none;">실패 재수집</button>
         <button id="btnBatchSave" class="btn btn-secondary">저장</button>
         <button id="btnBatchCopy" class="btn btn-secondary">JSON 복사</button>
       </div>
-      <p class="hint">게시판/멤버 페이지의 글 목록을 순회하며 수집합니다.<br>패널을 닫아도 백그라운드에서 수집이 계속됩니다.</p>
+      <p class="hint">① 페이지 범위의 링크를 먼저 불러온 뒤 ② 시작 글을 고르고 수집합니다.<br>패널을 닫아도 백그라운드에서 수집이 계속됩니다.</p>
     </div>
   </div>
 
   <!-- ═══ REVIEW MODE (Coupang, iHerb) ═══ -->
   <div id="mode-review" class="mode">
-    <div style="padding: 16px 20px;">
+    <div class="mode-content">
       <div class="actions">
         <button id="btnReviewCollect" class="btn btn-primary">수집 시작</button>
+        <button id="btnReviewStop" class="btn btn-danger" style="display:none;">중단</button>
         <button id="btnReviewSave" class="btn btn-secondary">저장</button>
         <button id="btnReviewCopy" class="btn btn-secondary">JSON 복사</button>
       </div>
-      <div id="reviewProgress" class="progress" style="display:none;">
+      <div id="reviewProgress" class="progress">
         <div class="progress-bar"><div class="fill"></div></div>
       </div>
-      <div id="reviewStatus" class="progress-text" style="margin-top:8px;"></div>
+      <div id="reviewStatus" class="progress-text"></div>
       <p class="hint">상품 페이지에서 리뷰를 자동으로 페이지네이션하며 수집합니다.</p>
     </div>
   </div>
 
   <!-- ═══ SOCIAL SCROLL MODE (LinkedIn, Threads, X, YouTube) ═══ -->
   <div id="mode-social" class="mode">
-    <div style="padding: 16px 20px;">
+    <div class="mode-content">
       <div class="actions">
         <button id="btnStart" class="btn btn-dark">Start</button>
         <button id="btnStop" class="btn btn-danger" style="display:none;">Stop</button>
@@ -295,6 +330,8 @@
         <li><span class="site-dot dot-youtube"></span>YouTube <span class="site-desc">— 영상 댓글 스크롤 수집 (CSV)</span></li>
         <li><span class="site-dot dot-linkedin"></span>LinkedIn <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
         <li><span class="site-dot dot-threads"></span>Threads <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
+        <li><span class="site-dot dot-facebook"></span>Facebook <span class="site-desc">— 프로필/페이지 피드 스크롤 수집 (CSV)</span></li>
+        <li><span class="site-dot dot-instagram"></span>Instagram <span class="site-desc">— 프로필 게시물 그리드 수집 (CSV)</span></li>
         <li><span class="site-dot dot-x"></span>X (Twitter) <span class="site-desc">— 프로필 피드 스크롤 수집 (CSV)</span></li>
       </ul>
       <p class="site-hint">해당 사이트로 이동하면 자동으로 수집 모드가 활성화됩니다.</p>

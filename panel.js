@@ -26,6 +26,8 @@ function detectSite(url) {
   if (url.includes('youtube.com/watch')) return 'youtube';
   if (url.includes('linkedin.com')) return 'linkedin';
   if (url.includes('threads.net') || url.includes('threads.com')) return 'threads';
+  if (url.includes('facebook.com')) return 'facebook';
+  if (url.includes('instagram.com')) return 'instagram';
   if (url.includes('x.com') || url.includes('twitter.com')) return 'x';
   return null;
 }
@@ -51,6 +53,18 @@ function showMode(site) {
     badge.textContent = 'iHerb';
     badge.className = 'site-badge badge-iherb';
     setStatus('상품 페이지에서 [수집 시작]을 누르세요.');
+  } else if (site === 'facebook') {
+    document.getElementById('mode-social').classList.add('active');
+    badge.textContent = 'Facebook';
+    badge.className = 'site-badge badge-facebook';
+    document.getElementById('btnStart').className = 'btn btn-linkedin';
+    setStatus('프로필/페이지 피드에서 Start를 누르세요.');
+  } else if (site === 'instagram') {
+    document.getElementById('mode-social').classList.add('active');
+    badge.textContent = 'Instagram';
+    badge.className = 'site-badge badge-instagram';
+    document.getElementById('btnStart').className = 'btn btn-dark';
+    setStatus('프로필 페이지에서 Start를 누르세요.');
   } else if (site === 'youtube') {
     document.getElementById('mode-social').classList.add('active');
     badge.textContent = 'YouTube';
@@ -88,13 +102,22 @@ async function init() {
   if (tab?.url) showMode(detectSite(tab.url));
 
   if (currentSite === 'naver') {
-    const status = await chrome.runtime.sendMessage({ type: 'BATCH_STATUS' });
-    if (status?.running) {
+    const linkStatus = await chrome.runtime.sendMessage({ type: 'LINKS_STATUS' });
+    if (linkStatus?.running) {
       switchNaverTab('batch');
-      startNaverProgressPolling();
+      document.getElementById('btnLoadLinks').disabled = true;
+      document.getElementById('btnLinksStop').style.display = '';
+      document.getElementById('progress').style.display = 'block';
+      startLinkProgressPolling();
+    } else {
+      const status = await chrome.runtime.sendMessage({ type: 'BATCH_STATUS' });
+      if (status?.running) {
+        switchNaverTab('batch');
+        startNaverProgressPolling();
+      }
     }
   }
-  if (['linkedin', 'threads', 'x'].includes(currentSite)) {
+  if (['linkedin', 'threads', 'x', 'facebook', 'instagram'].includes(currentSite)) {
     pollSocialStatus();
   }
 }
@@ -162,13 +185,27 @@ function buildExportData(data) {
 }
 
 function buildBatchExportData(result) {
+  const articles = result.articles || [];
   return {
-    cafeId: result.cafeId, totalArticles: result.articles.length, collectedAt: new Date().toISOString(),
-    articles: result.articles.map(a => ({
+    cafeId: result.cafeId,
+    totalArticles: articles.length,
+    collectedArticles: articles.filter(a => a.body).length,
+    failedArticles: articles.filter(a => !a.body).length,
+    collectedAt: new Date().toISOString(),
+    errors: result.errors || [],
+    articles: articles.map(a => ({
       title: a.title, author: a.author, date: a.date, url: a.url, body: a.body,
       comments: (a.comments || []).map(c => ({ author: c.author, text: c.text, date: c.date, type: c.type, isReply: c.isReply })),
     })),
   };
+}
+
+// A record with no body means the article never rendered — worth re-fetching.
+function failedLinksFrom(result) {
+  return (result.articles || [])
+    .filter(a => !a.body)
+    .map(a => ({ articleId: a.url?.match(/articles\/(\d+)/)?.[1], title: a.title }))
+    .filter(l => l.articleId);
 }
 
 async function downloadJson(jsonStr, filename) {
@@ -238,12 +275,20 @@ document.getElementById('btnCopyText').addEventListener('click', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-//  NAVER CAFE — Batch collect
+//  NAVER CAFE — Batch collect (2-phase: load links → pick start → collect)
 // ═══════════════════════════════════════════════════════════
 
-document.getElementById('btnBatch').addEventListener('click', async () => {
+let loadedLinks = [];      // links resolved in phase 1, in list order
+let loadedCafeId = '';
+
+// ─── Phase 1: load links across the page range ────────────────
+document.getElementById('btnLoadLinks').addEventListener('click', async () => {
   clearOutput();
   lastBatchResult = null;
+  loadedLinks = [];
+  hideStartPicker();
+  updateRetryButton();
+
   const startPage = parseInt(document.getElementById('startPage').value) || 1;
   const endPage = parseInt(document.getElementById('endPage').value) || 3;
   if (endPage < startPage) { setStatus('끝 페이지가 시작보다 작습니다.'); return; }
@@ -251,13 +296,111 @@ document.getElementById('btnBatch').addEventListener('click', async () => {
   const tab = await getTab();
   if (!tab) return;
 
-  setStatus('링크 수집 중...');
+  // Grab the list base URL + cafeId from whatever list page is open now;
+  // the background then navigates to the requested page range itself.
+  setStatus('현재 목록 페이지 확인 중...');
   await inject(tab.id);
   await sleep(300);
-  const firstResult = await sendToContent(tab.id, { type: 'GET_LINKS' });
-  if (!firstResult?.links?.length) { setStatus('글 목록을 찾지 못했습니다.'); return; }
+  const cur = await sendToContent(tab.id, { type: 'GET_LINKS' });
+  if (!cur?.pageUrl) { setStatus('글 목록 페이지에서 실행하세요.'); return; }
+  loadedCafeId = cur.cafeId || '';
 
-  appendOutput(`${firstResult.links.length}개 링크 발견 — 백그라운드 수집 시작`);
+  document.getElementById('btnLoadLinks').disabled = true;
+  document.getElementById('btnLinksStop').style.display = '';
+  document.getElementById('progress').style.display = 'block';
+
+  chrome.runtime.sendMessage({
+    type: 'LINKS_START',
+    tabId: tab.id,
+    listBaseUrl: cur.pageUrl,
+    startPage,
+    endPage,
+  });
+
+  startLinkProgressPolling();
+});
+
+document.getElementById('btnLinksStop').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'LINKS_STOP' });
+  setStatus('링크 수집 중지 요청됨...');
+});
+
+let linkPollInterval = null;
+
+function startLinkProgressPolling() {
+  if (linkPollInterval) clearInterval(linkPollInterval);
+  const progressFill = document.querySelector('#progress .fill');
+
+  linkPollInterval = setInterval(async () => {
+    const s = await chrome.runtime.sendMessage({ type: 'LINKS_STATUS' });
+    if (!s || !s.running) {
+      clearInterval(linkPollInterval);
+      linkPollInterval = null;
+      document.getElementById('btnLoadLinks').disabled = false;
+      document.getElementById('btnLinksStop').style.display = 'none';
+      document.getElementById('progress').style.display = 'none';
+
+      loadedLinks = s?.links || [];
+      if (s?.cafeId) loadedCafeId = s.cafeId;
+      if (!loadedLinks.length) {
+        setStatus(s?.error ? `링크 수집 실패: ${s.error}` : '링크를 찾지 못했습니다.');
+        return;
+      }
+      populateStartPicker(loadedLinks);
+      showStartPicker();
+      setStatus(`${loadedLinks.length}개 링크 로드됨 — 시작 글을 고르고 수집하세요.`);
+      return;
+    }
+    const pct = s.progress.total > 0 ? Math.round((s.progress.current / s.progress.total) * 100) : 0;
+    progressFill.style.width = `${pct}%`;
+    document.getElementById('progressText').textContent = s.progress.phase;
+    setStatus(`링크 수집 중... ${s.progress.phase}`);
+  }, 500);
+}
+
+// ─── Start-article picker ─────────────────────────────────────
+function populateStartPicker(links) {
+  const sel = document.getElementById('startArticle');
+  sel.innerHTML = '';
+  links.forEach((l, i) => {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    const title = (l.title || `(제목 없음 ${l.articleId})`).slice(0, 40);
+    opt.textContent = `[p${l.page ?? '?'}] ${title}`;
+    sel.appendChild(opt);
+  });
+  sel.value = '0';
+  updateRangePreview();
+}
+
+function updateRangePreview() {
+  const sel = document.getElementById('startArticle');
+  const startIdx = parseInt(sel.value) || 0;
+  const count = loadedLinks.length - startIdx;
+  const first = loadedLinks[startIdx];
+  document.getElementById('rangePreview').textContent =
+    `'${(first?.title || first?.articleId || '').slice(0, 24)}'부터 → ${count}개 수집 예정`;
+}
+
+document.getElementById('startArticle').addEventListener('change', updateRangePreview);
+
+function showStartPicker() { document.getElementById('startPicker').classList.add('active'); }
+function hideStartPicker() { document.getElementById('startPicker').classList.remove('active'); }
+
+// ─── Phase 2: collect bodies from the selected start onward ───
+document.getElementById('btnBatch').addEventListener('click', async () => {
+  if (!loadedLinks.length) { setStatus('먼저 링크를 불러오세요.'); return; }
+
+  const startIdx = parseInt(document.getElementById('startArticle').value) || 0;
+  const links = loadedLinks.slice(startIdx);
+  if (!links.length) { setStatus('수집할 글이 없습니다.'); return; }
+
+  const tab = await getTab();
+  if (!tab) return;
+
+  clearOutput();
+  lastBatchResult = null;
+  appendOutput(`${links.length}개 글 수집 시작 — 백그라운드 진행`);
 
   document.getElementById('btnBatch').disabled = true;
   document.getElementById('btnBatchStop').style.display = '';
@@ -266,11 +409,8 @@ document.getElementById('btnBatch').addEventListener('click', async () => {
   chrome.runtime.sendMessage({
     type: 'BATCH_START',
     tabId: tab.id,
-    listBaseUrl: firstResult.pageUrl,
-    startPage,
-    endPage,
-    cafeId: firstResult.cafeId || '',
-    firstPageLinks: firstResult.links,
+    cafeId: loadedCafeId,
+    links,
   });
 
   startNaverProgressPolling();
@@ -278,7 +418,7 @@ document.getElementById('btnBatch').addEventListener('click', async () => {
 
 let naverPollInterval = null;
 
-function startNaverProgressPolling() {
+function startNaverProgressPolling({ mergeInto = null } = {}) {
   if (naverPollInterval) clearInterval(naverPollInterval);
   const progressFill = document.querySelector('#progress .fill');
 
@@ -290,16 +430,27 @@ function startNaverProgressPolling() {
       document.getElementById('btnBatch').disabled = false;
       document.getElementById('btnBatchStop').style.display = 'none';
       if (s?.result) {
-        lastBatchResult = s.result;
+        // On retry, splice recovered articles back into the original run by URL.
+        if (mergeInto) {
+          const recovered = new Map(s.result.articles.filter(a => a.body).map(a => [articleKey(a.url), a]));
+          mergeInto.articles = mergeInto.articles.map(a => recovered.get(articleKey(a.url)) || a);
+          mergeInto.errors = s.result.errors || [];
+          lastBatchResult = mergeInto;
+        } else {
+          lastBatchResult = s.result;
+        }
         progressFill.style.width = '100%';
-        const total = s.result.articles.length;
-        const comments = s.result.articles.reduce((sum, a) => sum + (a.comments?.length || 0), 0);
+        const total = lastBatchResult.articles.length;
+        const ok = lastBatchResult.articles.filter(a => a.body).length;
+        const comments = lastBatchResult.articles.reduce((sum, a) => sum + (a.comments?.length || 0), 0);
         clearOutput();
         for (let i = 0; i < total; i++) {
-          const a = s.result.articles[i];
-          appendOutput(`[${i + 1}] ${a.title || '(제목 없음)'} — 댓글 ${a.comments?.length || 0}개`);
+          const a = lastBatchResult.articles[i];
+          const mark = a.body ? '' : ' ⚠ 본문 수집 실패';
+          appendOutput(`[${i + 1}] ${a.title || '(제목 없음)'} — 댓글 ${a.comments?.length || 0}개${mark}`);
         }
-        setStatus(`완료 — ${total}개 글, ${comments}개 댓글`);
+        setStatus(`완료 — ${ok}/${total}개 글, ${comments}개 댓글${total - ok > 0 ? ` (실패 ${total - ok}개)` : ''}`);
+        updateRetryButton();
       }
       return;
     }
@@ -313,6 +464,43 @@ function startNaverProgressPolling() {
 document.getElementById('btnBatchStop').addEventListener('click', async () => {
   await chrome.runtime.sendMessage({ type: 'BATCH_STOP' });
   setStatus('중지 요청됨...');
+});
+
+// Success and failure records carry different URL shapes (ca-fe vs f-e),
+// so match on the article id alone.
+function articleKey(url) {
+  return url?.match(/articles\/(\d+)/)?.[1] || url;
+}
+
+function updateRetryButton() {
+  const btn = document.getElementById('btnBatchRetry');
+  const failed = lastBatchResult ? failedLinksFrom(lastBatchResult).length : 0;
+  btn.style.display = failed > 0 ? '' : 'none';
+  btn.textContent = `실패 ${failed}개 재수집`;
+}
+
+document.getElementById('btnBatchRetry').addEventListener('click', async () => {
+  if (!lastBatchResult) { setStatus('먼저 수집을 완료하세요.'); return; }
+  const links = failedLinksFrom(lastBatchResult);
+  if (!links.length) { setStatus('재수집할 항목이 없습니다.'); return; }
+
+  const tab = await getTab();
+  if (!tab) return;
+
+  document.getElementById('btnBatch').disabled = true;
+  document.getElementById('btnBatchRetry').style.display = 'none';
+  document.getElementById('btnBatchStop').style.display = '';
+  document.getElementById('progress').style.display = 'block';
+  setStatus(`${links.length}개 재수집 시작...`);
+
+  chrome.runtime.sendMessage({
+    type: 'BATCH_RETRY',
+    tabId: tab.id,
+    cafeId: lastBatchResult.cafeId,
+    links,
+  });
+
+  startNaverProgressPolling({ mergeInto: lastBatchResult });
 });
 
 document.getElementById('btnBatchSave').addEventListener('click', async () => {
@@ -347,17 +535,22 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (fill) fill.style.width = '100%';
     document.getElementById('reviewStatus').textContent =
       `수집 완료 — ${msg.data.totalReviews}개 리뷰, ${msg.data.totalPages}페이지`;
+    document.getElementById('btnReviewStop').style.display = 'none';
+    document.getElementById('btnReviewCollect').style.display = '';
     document.getElementById('btnReviewCollect').disabled = false;
   }
   if (msg.type === 'error') {
     document.getElementById('reviewStatus').textContent = `오류: ${msg.message}`;
+    document.getElementById('btnReviewStop').style.display = 'none';
+    document.getElementById('btnReviewCollect').style.display = '';
     document.getElementById('btnReviewCollect').disabled = false;
   }
 });
 
 document.getElementById('btnReviewCollect').addEventListener('click', async () => {
   reviewResult = null;
-  document.getElementById('btnReviewCollect').disabled = true;
+  document.getElementById('btnReviewCollect').style.display = 'none';
+  document.getElementById('btnReviewStop').style.display = '';
   document.getElementById('reviewProgress').style.display = 'block';
   document.getElementById('reviewStatus').textContent = '수집 시작...';
   const fill = document.querySelector('#reviewProgress .fill');
@@ -367,6 +560,17 @@ document.getElementById('btnReviewCollect').addEventListener('click', async () =
   if (tab) {
     await chrome.tabs.sendMessage(tab.id, { action: 'startCollect' });
   }
+});
+
+document.getElementById('btnReviewStop').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (tab) {
+    await chrome.tabs.sendMessage(tab.id, { action: 'stopCollect' });
+  }
+  document.getElementById('btnReviewStop').style.display = 'none';
+  document.getElementById('btnReviewCollect').style.display = '';
+  document.getElementById('btnReviewCollect').disabled = false;
+  document.getElementById('reviewStatus').textContent += ' (중단됨)';
 });
 
 document.getElementById('btnReviewSave').addEventListener('click', async () => {
