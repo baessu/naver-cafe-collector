@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Side Collector",
   "version": "2.1.0",
-  "description": "네이버 카페, 쿠팡, 아이허브, LinkedIn, Threads, X, YouTube에서 데이터 수집",
+  "description": "네이버 카페, 쿠팡, 아이허브, Facebook, Instagram, LinkedIn, Threads, X, YouTube에서 데이터 수집",
   "background": {
     "service_worker": "background.js"
   },
@@ -16,7 +16,10 @@
     "https://www.threads.net/*",
     "https://www.threads.com/*",
     "https://x.com/*",
-    "https://twitter.com/*"
+    "https://twitter.com/*",
+    "https://www.facebook.com/*",
+    "https://m.facebook.com/*",
+    "https://www.instagram.com/*"
   ],
   "action": {
     "default_icon": {
@@ -68,6 +71,16 @@
       "js": ["scrapers/x-injected.js"],
       "world": "MAIN",
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.facebook.com/*", "https://m.facebook.com/*"],
+      "js": ["scrapers/facebook.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["scrapers/instagram.js"],
+      "run_at": "document_idle"
     }
   ]
 }
