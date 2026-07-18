@@ -22,15 +22,23 @@
   let currentPage = 0;
   let totalPages = 0;
   let isCollecting = false;
+  let aborted = false;
 
-  // popup.js로부터 수집 시작 메시지 수신
+  // panel.js로부터 메시지 수신
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "startCollect" && !isCollecting) {
       log("=== 수집 시작 명령 수신 ===");
       isCollecting = true;
+      aborted = false;
       collectedReviews = [];
       currentPage = 0;
       startCollection();
+    }
+    if (msg.action === "stopCollect") {
+      log("=== 수집 중단 명령 수신 ===");
+      aborted = true;
+      sendResponse({ ok: true, count: collectedReviews.length });
+      return true;
     }
   });
 
@@ -282,27 +290,34 @@
   }
 
   function getPageButtons() {
-    // .sdp-review 내부에서 둥근 숫자 버튼들을 찾는다
-    // 특징: twc-rounded-[50%] + 숫자 텍스트
+    // .sdp-review 내부에서 숫자 버튼들을 찾는다
     const sdpReview = document.querySelector(".sdp-review");
     if (!sdpReview) return [];
 
     const allBtns = sdpReview.querySelectorAll("button");
     return Array.from(allBtns).filter((btn) => {
       const text = btn.textContent.trim();
-      return /^\d+$/.test(text) && btn.className.includes("twc-rounded-[50%]");
+      return /^\d+$/.test(text);
     });
   }
 
   function getActivePageNum() {
-    // 활성 페이지 버튼: twc-text-[#346aff] + twc-border-[#346aff]
     const btns = getPageButtons();
     for (const btn of btns) {
-      if (btn.className.includes("twc-border-[#346aff]") || btn.className.includes("twc-text-[#346aff]")) {
+      // 활성 버튼은 보통 border/text 색상이 다름 — 여러 패턴 대응
+      const cls = btn.className;
+      if (
+        cls.includes("twc-border-[#346aff]") ||
+        cls.includes("twc-text-[#346aff]") ||
+        cls.includes("twc-font-bold") ||
+        btn.getAttribute("aria-current") === "true" ||
+        btn.getAttribute("aria-selected") === "true"
+      ) {
         return parseInt(btn.textContent.trim());
       }
     }
-    return 1;
+    // 폴백: 못 찾으면 currentPage 사용
+    return currentPage || 1;
   }
 
   function detectTotalPages() {
@@ -340,6 +355,11 @@
     let consecutiveEmpty = 0;
 
     while (true) {
+      if (aborted) {
+        log("사용자 중단 요청 → 수집 종료");
+        break;
+      }
+
       currentPage++;
       const progress = totalPages > 0 ? Math.min((currentPage / totalPages) * 100, 95) : 0;
       sendProgress(`${currentPage}페이지 수집 중...`, progress, currentPage);
@@ -366,6 +386,11 @@
       logGroupEnd();
 
       sendProgress(`${currentPage}페이지 완료 (총 ${collectedReviews.length}개)`, progress, currentPage);
+
+      if (aborted) {
+        log("사용자 중단 요청 → 수집 종료");
+        break;
+      }
 
       const hasNext = await goToNextPage();
       if (!hasNext) {
@@ -399,7 +424,31 @@
       matchedSelector = "helpBtn.parentElement";
     }
 
-    // 전략 2: 일반 셀렉터 폴백
+    // 전략 2: 별점 아이콘 기반 — 별점이 있는 블록의 공통 조상 탐색
+    if (articles.length === 0) {
+      const stars = document.querySelectorAll(".sdp-review i[class*='twc-bg-full-star']");
+      if (stars.length > 0) {
+        // 별점 그룹의 조상 중 리뷰 아이템 레벨을 찾기
+        const reviewItems = new Set();
+        stars.forEach((star) => {
+          // 별점 → 3~5단계 위 부모가 리뷰 아이템
+          let el = star;
+          for (let i = 0; i < 5; i++) {
+            el = el.parentElement;
+            if (!el) break;
+          }
+          if (el && el.querySelector("div[class*='twc-break-all']")) {
+            reviewItems.add(el);
+          }
+        });
+        if (reviewItems.size > 0) {
+          articles = Array.from(reviewItems);
+          matchedSelector = "star-ancestor";
+        }
+      }
+    }
+
+    // 전략 3: 일반 셀렉터 폴백
     if (articles.length === 0) {
       const fallbackSelectors = [
         ".sdp-review__article__list__review",
@@ -411,7 +460,7 @@
       ];
       for (const sel of fallbackSelectors) {
         const found = document.querySelectorAll(sel);
-        if (found.length > 0 && found.length <= 20) { // 리뷰는 보통 페이지당 5~20개
+        if (found.length > 0 && found.length <= 20) {
           articles = Array.from(found);
           matchedSelector = sel;
           break;
@@ -464,9 +513,11 @@
     articles.forEach((article, idx) => {
       try {
         const review = extractReviewData(article, idx === 0);
-        if (review && review.body) {
+        if (review && (review.body || review.author || review.rating > 0)) {
+          // Dedup by author+date+rating (body can be empty for photo-only reviews)
+          const key = `${review.author}|${review.date}|${review.rating}|${review.body?.slice(0, 30) || ''}`;
           const isDuplicate = collectedReviews.some(
-            (r) => r.body === review.body && r.author === review.author
+            (r) => `${r.author}|${r.date}|${r.rating}|${r.body?.slice(0, 30) || ''}` === key
           );
           if (!isDuplicate) {
             reviews.push(review);
@@ -517,13 +568,33 @@
     }
     if (isFirst) log(`  제목: "${title.slice(0, 60)}"`);
 
-    // --- 본문: twc-break-all 클래스를 가진 div ---
+    // --- 본문: 여러 패턴 시도 ---
     let body = "";
-    const bodyEl = article.querySelector("div[class*='twc-break-all']");
-    if (bodyEl) {
-      body = bodyEl.textContent.trim();
+    // 패턴 1: twc-break-all
+    const bodyEl1 = article.querySelector("div[class*='twc-break-all']");
+    if (bodyEl1) {
+      body = bodyEl1.textContent.trim();
     }
-    if (isFirst) log(`  본문: "${body.slice(0, 80)}..."`);
+    // 패턴 2: 긴 텍스트가 있는 div (프로필/날짜/옵션 제외)
+    if (!body) {
+      const allDivs2 = article.querySelectorAll("div");
+      for (const d of allDivs2) {
+        const text = d.textContent.trim();
+        // 본문은 보통 20자 이상이고, 날짜/옵션이 아닌 블록
+        if (
+          text.length > 20 &&
+          d.children.length === 0 &&
+          !/^\d{4}\.\d{2}\.\d{2}$/.test(text) &&
+          !d.className.includes("twc-line-clamp") &&
+          !d.className.includes("twc-gap-[12px]") &&
+          !d.closest("[class*='twc-rounded-[50%]']") // 프로필 아바타 영역 제외
+        ) {
+          body = text;
+          break;
+        }
+      }
+    }
+    if (isFirst) log(`  본문: "${body.slice(0, 80)}${body.length > 80 ? '...' : ''}"`);
 
     // --- 속성 평가 (편리성: 아주 편리해요 등) ---
     const attributes = {};
@@ -579,39 +650,41 @@
   }
 
   async function goToNextPage() {
-    const activeNum = getActivePageNum();
-    log(`현재 활성 페이지: ${activeNum}`);
+    const targetPage = currentPage + 1;
+    log(`다음 페이지 이동 시도: ${targetPage}`);
 
-    // 다음 번호 버튼 찾기
+    // 다음 번호 버튼 직접 찾기
     const btns = getPageButtons();
     for (const btn of btns) {
       const num = parseInt(btn.textContent.trim());
-      if (num === activeNum + 1) {
-        log(`다음 페이지 클릭: ${num}`);
+      if (num === targetPage) {
+        log(`페이지 ${num} 버튼 클릭`);
         btn.click();
-        await sleep(1500);
-        // 리뷰 영역으로 스크롤 유지
-        const sdpReview = document.querySelector(".sdp-review");
-        if (sdpReview) sdpReview.scrollIntoView({ behavior: "smooth", block: "start" });
+        await waitForReviewsReload();
         return true;
       }
     }
 
-    // 다음 번호가 현재 보이는 버튼에 없으면 "다음" 화살표 클릭
+    // 버튼에 targetPage가 없으면 "다음" 화살표 클릭
     const sdpReview = document.querySelector(".sdp-review");
     if (sdpReview) {
-      const allBtns = sdpReview.querySelectorAll("button");
-      // 화살표 버튼: SVG 포함 + 텍스트 없음 + 숫자 버튼들 뒤에 위치
-      const arrowBtns = Array.from(allBtns).filter(
-        (btn) => btn.querySelector("svg") && !btn.textContent.trim()
+      const allBtns = Array.from(sdpReview.querySelectorAll("button"));
+      // 화살표 버튼: SVG 포함 + 숫자 텍스트 없음
+      const arrowBtns = allBtns.filter(
+        (btn) => btn.querySelector("svg") && !/\d/.test(btn.textContent.trim())
       );
-      // 마지막 화살표 = "다음"
-      if (arrowBtns.length > 0) {
-        const nextArrow = arrowBtns[arrowBtns.length - 1];
-        if (!nextArrow.disabled) {
-          log(`"다음" 화살표 클릭`);
-          nextArrow.click();
-          await sleep(1500);
+      // 숫자 버튼들의 위치를 기준으로 그 뒤에 있는 화살표 = "다음"
+      const pageBtnIndices = allBtns
+        .map((btn, i) => /^\d+$/.test(btn.textContent.trim()) ? i : -1)
+        .filter(i => i >= 0);
+      const lastPageBtnIdx = pageBtnIndices.length > 0 ? pageBtnIndices[pageBtnIndices.length - 1] : -1;
+
+      for (const arrow of arrowBtns) {
+        const arrowIdx = allBtns.indexOf(arrow);
+        if (arrowIdx > lastPageBtnIdx && !arrow.disabled) {
+          log(`"다음" 화살표 클릭 (index ${arrowIdx})`);
+          arrow.click();
+          await waitForReviewsReload();
           return true;
         }
       }
@@ -619,6 +692,34 @@
 
     log("다음 페이지 버튼 없음 — 마지막 페이지");
     return false;
+  }
+
+  async function waitForReviewsReload() {
+    // 페이지 클릭 후 리뷰 DOM이 갱신될 때까지 대기
+    const before = document.querySelectorAll(
+      ".sdp-review__article__list__help, .js_reviewArticleHelpfulContainer"
+    );
+    const beforeCount = before.length;
+    const beforeFirst = before[0]?.parentElement?.textContent?.slice(0, 50) || "";
+
+    await sleep(800);
+
+    // 최대 3초간 DOM 변경 감지 대기
+    for (let i = 0; i < 6; i++) {
+      const after = document.querySelectorAll(
+        ".sdp-review__article__list__help, .js_reviewArticleHelpfulContainer"
+      );
+      const afterFirst = after[0]?.parentElement?.textContent?.slice(0, 50) || "";
+      if (afterFirst !== beforeFirst || after.length !== beforeCount) {
+        log(`리뷰 DOM 갱신 감지 (${(i + 1) * 500}ms)`);
+        break;
+      }
+      await sleep(500);
+    }
+
+    // 리뷰 영역으로 스크롤 유지
+    const sdpReview = document.querySelector(".sdp-review");
+    if (sdpReview) sdpReview.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   function buildResult() {
